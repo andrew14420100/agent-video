@@ -78,30 +78,27 @@ def media_info(path: Path) -> dict:
 
 # --------------------------------------------------------------------------- video
 
-def _decode_gray(path: Path, duration: float) -> np.ndarray:
-    raw, _ = ff.run_capture([
-        "-v", "error", "-i", str(path), "-an", "-sn",
-        "-vf", f"fps={AFPS},scale={AW}:{AH}:flags=area,format=gray",
-        "-f", "rawvideo", "-",
-    ], timeout=max(120, duration * 4))
+def _decode_and_cuts(path: Path, duration: float) -> tuple[np.ndarray, list[float]]:
+    """Un solo passaggio di decodifica: fotogrammi in scala di grigi (4 fps,
+    160x90) su stdout e tagli di scena (filtro scdet) su stderr."""
+    use_scdet = "scdet" in ff.available_filters()
+    if use_scdet:
+        fc = (f"[0:v]scale=320:-2:flags=fast_bilinear,split[a][b];[a]scdet=threshold=12,nullsink;"
+              f"[b]fps={AFPS},scale={AW}:{AH}:flags=area,format=gray[g]")
+    else:
+        fc = f"[0:v]fps={AFPS},scale={AW}:{AH}:flags=area,format=gray[g]"
+    raw, err = ff.run_capture([
+        "-v", "info", "-hwaccel", "auto", "-i", str(path), "-an", "-sn",
+        "-filter_complex", fc, "-map", "[g]", "-f", "rawvideo", "-",
+    ], timeout=max(180, duration * 4))
     n = len(raw) // (AW * AH)
-    return np.frombuffer(raw[: n * AW * AH], np.uint8).reshape(n, AH, AW).astype(np.float32) / 255.0
-
-
-def _scene_cuts(path: Path, duration: float) -> list[float]:
-    """Tagli di scena con il filtro scdet di FFmpeg (su copia ridotta)."""
-    if "scdet" not in ff.available_filters():
-        return []
-    _, err = ff.run_capture([
-        "-v", "info", "-i", str(path), "-an", "-sn",
-        "-vf", "scale=320:-2,scdet=threshold=12", "-f", "null", "-",
-    ], timeout=max(120, duration * 4))
+    frames = np.frombuffer(raw[: n * AW * AH], np.uint8).reshape(n, AH, AW).astype(np.float32) / 255.0
     cuts = [float(m.group(1)) for m in re.finditer(r"lavfi\.scd\.time:\s*([0-9.]+)", err)]
     out: list[float] = []
     for c in sorted(cuts):
         if c > 0.05 and (not out or c - out[-1] > 0.3):
             out.append(round(c, 3))
-    return out
+    return frames, out
 
 
 def _runs(mask: np.ndarray, min_len: int) -> list[tuple[int, int]]:
@@ -118,7 +115,7 @@ def _runs(mask: np.ndarray, min_len: int) -> list[tuple[int, int]]:
 
 def analyze_video(path: Path, info: dict) -> dict:
     dur = float(info.get("duration") or 0)
-    frames = _decode_gray(path, dur)
+    frames, cuts = _decode_and_cuts(path, dur)
     n = len(frames)
     if n == 0:
         raise ff.FFmpegError("Decodifica video fallita (0 fotogrammi)")
@@ -136,7 +133,6 @@ def analyze_video(path: Path, info: dict) -> dict:
     frozen = motion < 0.0015
     black_runs = [(round(a / AFPS, 2), round(b / AFPS, 2)) for a, b in _runs(black, 2)]
     frozen_runs = [(round(a / AFPS, 2), round(b / AFPS, 2)) for a, b in _runs(frozen, int(AFPS * 2))]
-    cuts = _scene_cuts(path, dur)
 
     # punteggio qualità per campione (0..1): esposizione, contrasto, nitidezza, movimento moderato
     sharp_n = np.clip(sharp / (np.percentile(sharp, 90) + 1e-6), 0, 1)

@@ -29,7 +29,7 @@ from ..media import ffmpeg as ff
 from ..project import AudioClip, Project, VideoClip
 from .ass import build_ass
 
-ENGINE_VERSION = "1"
+ENGINE_VERSION = "3"
 ProgressFn = Callable[[str, float], None]
 
 XFADE_TYPES = {
@@ -140,7 +140,7 @@ def _video_filter(clip: VideoClip, kind: str, W: int, H: int, fps: int, dur: flo
     look = LOOKS.get(clip.look, "")
     if look:
         graph += "," + look
-    graph += ",format=yuv420p"
+    graph += ",setsar=1,format=yuv420p"
     return graph
 
 
@@ -235,11 +235,14 @@ def mix_audio(project: Project, bed: Path, out: Path, total: float, work: Path,
     def bus(labels: list[str], name: str) -> Optional[str]:
         if not labels:
             return None
+        # ogni bus dura esattamente quanto il video: sidechaincompress si ferma
+        # alla fine del segnale di controllo, quindi la voce va estesa col silenzio
+        pad = f"apad=whole_dur={total:.4f},atrim=0:{total:.4f}"
         if len(labels) == 1:
-            parts.append(f"[{labels[0]}]anull[{name}]")
+            parts.append(f"[{labels[0]}]{pad}[{name}]")
         else:
             parts.append("".join(f"[{x}]" for x in labels) +
-                         f"amix=inputs={len(labels)}:normalize=0:duration=longest[{name}]")
+                         f"amix=inputs={len(labels)}:normalize=0:duration=longest,{pad}[{name}]")
         return name
 
     vbus, mbus, sbus = bus(voice, "voice"), bus(music, "music"), bus(sfx, "sfx")
@@ -281,27 +284,53 @@ def mix_audio(project: Project, bed: Path, out: Path, total: float, work: Path,
 
     target = project.export.loudness_target
     tp = -1.5
-    # 1° passaggio: misura
-    stderr = ff.run_ffmpeg([*inputs, "-filter_complex",
-                            graph + f";[mix]loudnorm=I={target}:TP={tp}:LRA=11:print_format=json[m]",
-                            "-map", "[m]", "-f", "null", "-"], cancel=cancel, timeout=1800)
-    meas = _loudnorm_measure(stderr)
-    try:
-        in_i = float(meas.get("input_i", "-inf"))
-    except ValueError:
-        in_i = float("-inf")
-    if meas and in_i > -70:
-        ln = (f"loudnorm=I={target}:TP={tp}:LRA=11:measured_I={meas['input_i']}:measured_TP={meas['input_tp']}:"
-              f"measured_LRA={meas['input_lra']}:measured_thresh={meas['input_thresh']}:"
-              f"offset={meas['target_offset']}:linear=true,aresample=48000,alimiter=limit={10 ** (tp / 20):.4f}:level=false")
-        normalized = True
-    else:
-        ln = "anull"
-        normalized = False
-    ff.run_ffmpeg([*inputs, "-filter_complex", graph + f";[mix]{ln},atrim=0:{total:.4f}[m]",
-                   "-map", "[m]", "-c:a", "pcm_s24le", "-ar", "48000", "-ac", "2", str(out)],
-                  cancel=cancel, timeout=1800)
-    return {"measured_input": meas, "normalized": normalized, "target_lufs": target, "true_peak_limit": tp}
+    # Il mix grezzo viene scritto una volta; poi guadagno lineare + limitatore
+    # true-peak (sovracampionato 4x) con una correzione basata sulla misura.
+    raw = work / "mix_raw.wav"
+    ff.run_ffmpeg([*inputs, "-filter_complex", graph, "-map", "[mix]", "-c:a", "pcm_f32le",
+                   "-ar", "48000", "-ac", "2", str(raw)], cancel=cancel, timeout=1800)
+
+    def measure(f: Path) -> dict:
+        err = ff.run_ffmpeg(["-i", str(f), "-af", f"loudnorm=I={target}:TP={tp}:print_format=json",
+                             "-f", "null", "-"], cancel=cancel, timeout=900)
+        return _loudnorm_measure(err)
+
+    def level(m: dict) -> float:
+        try:
+            return float(m.get("input_i", "-inf"))
+        except ValueError:
+            return float("-inf")
+
+    meas = measure(raw)
+    i0 = level(meas)
+    lim = 10 ** ((tp - 0.3) / 20)
+
+    def apply(gain_db: float) -> None:
+        ff.run_ffmpeg(["-i", str(raw), "-af",
+                       f"volume={gain_db:.3f}dB,aresample=192000,"
+                       f"alimiter=limit={lim:.5f}:attack=3:release=60:level=false,aresample=48000,"
+                       f"atrim=0:{total:.4f}",
+                       "-c:a", "pcm_s24le", "-ar", "48000", "-ac", "2", str(out)], cancel=cancel, timeout=1800)
+
+    if i0 > -70:
+        gain = target - i0
+        apply(gain)
+        res = measure(out)
+        passes = 1
+        for _ in range(2):  # il limitatore abbassa la loudness: correzione misurata
+            d = target - level(res)
+            if abs(d) <= 0.3:
+                break
+            gain += d
+            apply(gain)
+            res = measure(out)
+            passes += 1
+        return {"measured_input": meas, "normalized": True, "gain_db": round(gain, 2), "passes": passes,
+                "output_lufs": res.get("input_i"), "output_true_peak": res.get("input_tp"),
+                "target_lufs": target, "true_peak_limit": tp}
+    apply(0.0)
+    return {"measured_input": meas, "normalized": False, "note": "audio silenzioso: nessuna normalizzazione",
+            "target_lufs": target, "true_peak_limit": tp}
 
 
 # --------------------------------------------------------------------------- composizione
@@ -406,7 +435,7 @@ def render_project(project: Project, mode: str = "final", progress: Optional[Pro
         inputs += ["-i", str(s)]
     parts = []
     for i in range(n):
-        parts.append(f"[{i}:v]setpts=PTS-STARTPTS,fps={fps},settb=AVTB[sv{i}]")
+        parts.append(f"[{i}:v]setpts=PTS-STARTPTS,fps={fps},setsar=1,settb=AVTB[sv{i}]")
         parts.append(f"[{i}:a]asetpts=PTS-STARTPTS[sa{i}]")
     vcur, acur = "sv0", "sa0"
     L = durs[0]

@@ -26,6 +26,8 @@ from ..research import providers as rp
 from . import brief as brief_mod
 
 OK_LICENSES = {"user", "generated"}
+NON_BROLL = re.compile(r"this week|briefing|conference|interview|podcast|panel|talk|news|update|q&a|"
+                       r"press|lecture|webinar|town hall|launch coverage|replay", re.I)
 
 
 def license_ok(code: str) -> bool:
@@ -106,6 +108,9 @@ class ResearchAgent(Agent):
                 scored = []
                 for r in results:
                     rel = len(qtok & (tokens(r.title + " " + r.description) | set(r.tags))) / max(1, len(qtok))
+                    # notiziari, conferenze e interviste sono poco adatti come B-roll
+                    if NON_BROLL.search(r.title):
+                        rel -= 0.5
                     scored.append((rel, r))
                 scored.sort(key=lambda x: -x[0])
                 for rel, r in scored:
@@ -673,7 +678,7 @@ class ExportAgent(Agent):
         except ff.FFmpegError:
             poster = None
         run_tasks = [{"agente": t.title, "stato": t.status, "sintesi": t.summary, "secondi": t.seconds,
-                      "avvisi": t.warnings} for t in ctx.run.tasks]
+                      "avvisi": t.warnings} for t in ctx.run.tasks if t is not ctx.task]
         report = {
             "progetto": p.name, "file": r.path.name, "durata": r.duration, "risoluzione": f"{r.width}x{r.height}",
             "fps": r.fps, "codec": p.export.codec if r.mode == "final" else "h264", "encoder": r.encoder,

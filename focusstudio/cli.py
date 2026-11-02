@@ -1,5 +1,6 @@
 """Riga di comando: focusstudio <comando> ...
 
+  focusstudio app                         finestra desktop (pywebview) o browser
   focusstudio serve                       avvia l'interfaccia (http://127.0.0.1:8765)
   focusstudio doctor                      verifica FFmpeg, NVENC, voce, trascrizione, LLM
   focusstudio new "Nome"                  crea un progetto
@@ -39,6 +40,7 @@ def main(argv=None) -> int:
     ap.add_argument("--data-dir", help="cartella dati (default: %%LOCALAPPDATA%%/SteamFocusStudio)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("serve"); s.add_argument("--port", type=int); s.add_argument("--no-browser", action="store_true")
+    s = sub.add_parser("app"); s.add_argument("--port", type=int)
     sub.add_parser("doctor")
     s = sub.add_parser("new"); s.add_argument("name")
     s = sub.add_parser("import"); s.add_argument("project"); s.add_argument("files", nargs="+")
@@ -55,6 +57,10 @@ def main(argv=None) -> int:
     if a.cmd == "serve":
         from .server import serve
         serve(port=a.port, open_browser=not a.no_browser)
+        return 0
+    if a.cmd == "app":
+        from .server import run_app
+        run_app(port=a.port)
         return 0
     if a.cmd == "doctor":
         print(json.dumps(service.system_status(), indent=2, ensure_ascii=False))

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steam Focus Studio</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo-dot"></span>STEAM FOCUS <b>STUDIO</b></div>
+  <div class="project-picker">
+    <select id="projectSelect" title="Progetto"></select>
+    <button id="newProjectBtn" class="ghost" title="Nuovo progetto">＋ Nuovo</button>
+    <input id="projectName" class="name-input" title="Nome progetto">
+  </div>
+  <div class="top-actions">
+    <span id="sysPill" class="pill">verifica sistema…</span>
+    <button id="settingsBtn" class="ghost">Impostazioni</button>
+  </div>
+</header>
+
+<main class="workspace">
+  <aside class="panel left">
+    <nav class="tabs">
+      <button data-tab="media" class="active">Media</button>
+      <button data-tab="search">Ricerca libera</button>
+    </nav>
+    <section id="tab-media" class="tab active">
+      <label class="drop" id="dropZone">
+        <input type="file" id="fileInput" multiple hidden>
+        <strong>Importa video, immagini, audio</strong>
+        <span>Trascina qui o fai clic</span>
+      </label>
+      <div class="row gap">
+        <label class="btn small"><input type="file" id="logoInput" accept="image/*" hidden>Carica logo</label>
+        <label class="btn small"><input type="file" id="musicInput" accept="audio/*" hidden>Carica musica</label>
+      </div>
+      <div class="row"><input id="pathInput" placeholder="…oppure percorso locale (file grandi)"><button id="pathBtn" class="small">Importa</button></div>
+      <div id="assetList" class="asset-list"></div>
+    </section>
+    <section id="tab-search" class="tab">
+      <p class="hint">Solo fonti con licenza esplicita. I risultati con licenza non consentita non sono scaricabili.</p>
+      <div class="row gap">
+        <select id="searchProvider">
+          <option value="nasa:video">NASA – video</option>
+          <option value="nasa:image">NASA – immagini</option>
+          <option value="wikimedia:video">Wikimedia – video</option>
+          <option value="wikimedia:image">Wikimedia – immagini</option>
+          <option value="openverse:image">Openverse – immagini</option>
+          <option value="openverse:audio">Openverse – audio</option>
+        </select>
+      </div>
+      <div class="row"><input id="searchQuery" placeholder="es. earth from space"><button id="searchBtn" class="small">Cerca</button></div>
+      <div id="searchResults" class="asset-list"></div>
+    </section>
+  </aside>
+
+  <section class="center">
+    <div class="director">
+      <textarea id="prompt" rows="3" placeholder='Descrivi il video. Es.: Video dinamico di 30 secondi in 4K con titolo "Estate 2026", musica e sottotitoli. Testo: …'></textarea>
+      <div class="director-actions">
+        <button id="generateBtn" class="primary">Genera con gli agenti</button>
+        <button id="previewBtn">Anteprima rapida</button>
+        <button id="exportBtn" class="accent">Esporta finale</button>
+        <button id="cancelBtn" class="ghost danger" hidden>Annulla</button>
+      </div>
+    </div>
+    <div class="viewer">
+      <video id="player" controls playsinline></video>
+      <div id="viewerEmpty" class="viewer-empty">Nessun render ancora. Genera o fai un'anteprima.</div>
+    </div>
+    <div class="render-bar">
+      <select id="renderSelect"></select>
+      <a id="openRender" class="btn small" target="_blank">Apri file</a>
+      <span id="qaBadge" class="pill"></span>
+    </div>
+  </section>
+
+  <aside class="panel right">
+    <nav class="tabs">
+      <button data-rtab="agents" class="active">Agenti</button>
+      <button data-rtab="inspector">Inspector</button>
+      <button data-rtab="export">Esportazione</button>
+    </nav>
+    <section id="rtab-agents" class="tab active"><div id="agents"></div></section>
+    <section id="rtab-inspector" class="tab"><div id="inspector" class="inspector"><p class="hint">Seleziona un elemento nella timeline.</p></div></section>
+    <section id="rtab-export" class="tab"><div id="exportForm" class="inspector"></div></section>
+  </aside>
+</main>
+
+<section class="timeline-wrap">
+  <div class="timeline-toolbar">
+    <strong>Timeline</strong>
+    <span id="tlInfo" class="muted"></span>
+    <div class="spacer"></div>
+    <button id="addTitleBtn" class="small ghost">＋ Titolo</button>
+    <button id="addSubBtn" class="small ghost">＋ Sottotitolo</button>
+    <label class="muted">Zoom <input id="zoom" type="range" min="20" max="200" value="60"></label>
+    <button id="saveBtn" class="small primary" disabled>Salva modifiche</button>
+  </div>
+  <div class="timeline" id="timeline">
+    <div class="track-labels">
+      <div class="ruler-label"></div>
+      <div>Video</div><div>Testi</div><div>Audio</div><div>Sottotitoli</div>
+    </div>
+    <div class="tracks-scroll" id="tracksScroll">
+      <div class="tracks" id="tracks">
+        <div class="ruler" id="ruler"></div>
+        <div class="track" id="trackVideo"></div>
+        <div class="track" id="trackText"></div>
+        <div class="track" id="trackAudio"></div>
+        <div class="track" id="trackSubs"></div>
+        <div class="playhead" id="playhead"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<dialog id="settingsDlg">
+  <form method="dialog" id="settingsForm">
+    <h3>Impostazioni e stato del sistema</h3>
+    <div id="sysDetails" class="sys-details"></div>
+    <div id="settingsFields" class="inspector"></div>
+    <div class="row gap end"><button value="cancel" class="ghost">Chiudi</button><button id="saveSettings" value="ok" class="primary">Salva</button></div>
+  </form>
+</dialog>
+<div id="toast" class="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
