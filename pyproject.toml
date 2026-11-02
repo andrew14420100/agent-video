@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "steam-focus-studio"
+version = "0.1.0"
+description = "Studio di montaggio video automatizzato multi-agente, locale e open source (FFmpeg)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "pydantic>=2.6",
+  "numpy>=1.26",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+voice = ["piper-tts>=1.2"]
+asr = ["faster-whisper>=1.0"]
+desktop = ["pywebview>=5.0"]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+focusstudio = "focusstudio.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["focusstudio*"]
+
+[tool.setuptools.package-data]
+focusstudio = ["../ui/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
